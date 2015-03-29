@@ -1,7 +1,7 @@
 import csv as csv
 import numpy as np
 
-csv_file_object = csv.reader(open('../data/train.csv','rb'))
+csv_file_object = csv.reader(open('data/train.csv','rb'))
 header = csv_file_object.next()
 
 
@@ -15,6 +15,8 @@ number_passengers = np.size(data[::,1].astype(np.float))
 number_survived = np.sum(data[::,1].astype(np.float))
 proportion_survivors = number_survived / number_passengers
 
+women_only_stats = data[0::,4] == "female"
+men_only_stats = data[0::,4] != "female"
 # Using the index from above we select the females and males separately
 women_onboard = data[women_only_stats,1].astype(np.float)     
 men_onboard = data[men_only_stats,1].astype(np.float)
@@ -30,11 +32,11 @@ print 'Proportion of women who survived is %s' % proportion_women_survived
 print 'Proportion of men who survived is %s' % proportion_men_survived
 
 
-test_file = open('../data/test.csv', 'rb')
+test_file = open('data/test.csv', 'rb')
 test_file_object = csv.reader(test_file)
 header = test_file_object.next()
 
-prediction_file = open("../data/output/genderbasedmodel_python.csv", "wb")
+prediction_file = open("data/output/genderbasedmodel_python.csv", "wb")
 prediction_file_object = csv.writer(prediction_file)
 prediction_file_object.writerow(["PassengerId", "Survived"])
 
