@@ -8,6 +8,10 @@ df = pd.read_csv('data/train.csv',header=0)
 
 df.Age.dropna().hist(bins = 16, range=(0, 80), alpha= .5)
 
+# df['Gender'] = df['Sex'].map(lambda x: 0 if x == "female" else 1)
+df['Gender'] = df['Sex'].map({'female': 0, 'male':1})
+df['AgeFill'] = df['Age']
+
 # calculating median ages per gender per classes
 median_ages = np.zeros((2,3)) # 2 gender,3 classes
 for i in range(0,2):
@@ -27,6 +31,7 @@ df['Age*Class'] = df.AgeFill * df.Pclass
 # df.Pclass.value_counts()
 # f = lambda x: 'Mr' in x
 # df.Name.map(f)
+
 
 # df.dtypes[df.dtypes.map(lambda x:x == 'object')]
 # df = df.drop(['Name', 'Sex', 'Ticket', 'Cabin', 'Embarked'], axis = 1)
