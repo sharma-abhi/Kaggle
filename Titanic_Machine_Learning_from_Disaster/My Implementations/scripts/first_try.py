@@ -1,30 +1,68 @@
-__author__ = 'Abhijeet'
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
 
+__author__ = 'Abhijeet'
 
 import pandas as pd
 import numpy as np
-import pylab as P
 import csv
 from sklearn.ensemble import RandomForestClassifier
+from sklearn import preprocessing
+from scripts.populate_missing_ages import setMissingAges as sma
+import re
 
-df = pd.read_csv('data/train.csv',header=0)
+# Reading training data and test data
+train_df = pd.read_csv('data/train.csv', header=0)
+test_df = pd.read_csv('data/test.csv', header=0)
 
-# df['Gender'] = df['Sex'].map(lambda x: 0 if x == "female" else 1)
+# merge both data frames
+df = pd.concat([train_df, test_df])
+
+df.reset_index(inplace=True)
+
+df.drop(labels='index', axis=1, inplace=True)
+
+df = df.reindex_axis(train_df.columns, axis=1)
+
+print df.shape[1], "columns:", df.columns.values
+print "Row count:", df.shape[0]
+
 df['Gender'] = df['Sex'].map({'female': 0, 'male':1})
-df['Port'] = df['Embarked'].map({'C': 0, 'Q': 1, 'S': 2})
+#df['Port'] = df['Embarked'].map({'C': 0, 'Q': 1, 'S': 2})
 df['AgeFill'] = df['Age']
 
-median_ages = np.zeros((2,3)) # 2 gender,3 classes
-for i in range(0,2):
-    for j in range(0,3):
-        median_ages[i, j] = df[(df['Gender'] == i) & (df['Pclass'] == j+1)]['Age'].dropna().median()
+# Missing values
+
+# df['Fare'][np.isnan(df['Fare'])] = df['Fare'].median()
+df.loc[(df.Fare.isnull()),'Fare'] = df['Fare'].median()
+
+# Most occurring value
+#df.loc[(df.Port.isnull()),'Port'] = 2
+
+df = sma(df)
+
+df = pd.concat([df, pd.get_dummies(df['Embarked']).rename(columns=lambda x: 'Embarked_' + str(x))], axis=1)
+
+# Assign dummy variable to cabin
+df.loc[(df.Cabin.isnull()), 'Cabin'] = 'U0'
+df['CabinLetter'] = df['Cabin'].map( lambda x : re.compile("([a-zA-Z]+)").search(x).group())
+df['CabinLetter'] = pd.factorize(df['CabinLetter'])[0]
 
 
-for i in range(0, 2):
-    for j in range(0, 3):
-        df.loc[(df.Age.isnull()) & (df.Gender == i) &(df.Pclass == j+1), 'AgeFill'] = median_ages[i, j]
+# StandardScaler will subtract the mean from each value then scale to the unit variance
+scaler = preprocessing.StandardScaler()
+df['Age_scaled'] = scaler.fit_transform(df['AgeFill'])
 
-df.loc[(df.Port.isnull()),'Port'] = 2
+# Divide all fares into quartiles
+df['Fare_bin'] = pd.qcut(df['Fare'], 4)
+
+# qcut() creates a new variable that identifies the quartile range, but we can't use the string so either
+# factorize or create dummies from the result
+#df['Fare_bin_id'] = pd.factorize(df['Fare_bin'])
+
+df = pd.concat([df, pd.get_dummies(df['Fare_bin']).rename(columns=lambda x: 'Fare_' + str(x))], axis=1)
+
+
 
 # TODO: Feature Engineering
 # Family Size
@@ -44,7 +82,7 @@ train_data = df.values
 
 
 
-test_df = pd.read_csv('data/test.csv', header=0)
+
 
 test_df['Gender'] = test_df['Sex'].map({'female': 0, 'male':1})
 test_df['Port'] = test_df['Embarked'].map({'C': 0, 'Q': 1, 'S': 2})
