@@ -199,6 +199,13 @@ inTest <- createDataPartition(y=rest_train$Survived, p = 0.5, list=FALSE)
 training.classifier_valid <- rest_train[inTest,] 
 # 20% data for validation set to calculate out-of-sample errors
 training.oos_valid <- rest_train[-inTest,] 
+
+# data_labels <- c("Train", "Validate", "Test")
+# per_data_point_label <- sample(data_labels, size=nrow(train), 
+#                                replace=TRUE, prob=c(0.6, 0.2, 0.2))
+# training.train <- train[per_data_point_label == "Train",]
+# training.classifier_valid <- train[per_data_point_label == "Validate",]
+# training.oos_valid <- train[per_data_point_label == "Test",]
 ```
 # Step 5: Select the best classifier
 We select among different classifiers (Decision trees, Random Forests, 
@@ -308,6 +315,10 @@ test$Age[na_Age] <- age_predictions
 ```
 ## Step 6.2: predict on the classifier selected above
 ```{r}
+# we train the selected classifier using the full training set and predict on
+# the test set
+set.seed(123)
+forest_Model <- train(Survived ~ ., data=train, method="rf")
 pred_Forest_test <- predict(forest_Model, newdata=test)
 
 # converting factor to numeric(Not_Survived=0, Survived=1)
@@ -318,15 +329,18 @@ df <- data.frame(PassengerId=test$PassengerId, Survived=final_pred)
 ```{r}
 write.csv(df, file="prediction_rf.csv", row.names=FALSE)
 ```
-Accuracy: 0.78469
-We find that the above model results in an accuracy of 0.78469 in Kaggle.
+Accuracy: 0.77033
+We find that the above model results in an accuracy of 0.77033 in Kaggle.
 That's Awesome! and far better than our earlier score of 0.73.
 So, predicting the missing Ages paid off :)
 Again, just for fun, let's predict on the test set using some of the other 
 classfiers.
 ```{r}
 # Decision Tree
+set.seed(123)
+tree_Model <- train(Survived ~ ., data=train, method="rpart")
 pred_Tree_test <- predict(tree_Model, newdata=test)
+fancyRpartPlot(tree_Model$finalModel)
 
 # converting factor to numeric(Not_Survived=0, Survived=1)
 final_pred <- as.numeric(pred_Tree_test=="Survived")
@@ -334,10 +348,14 @@ df <- data.frame(PassengerId=test$PassengerId, Survived=final_pred)
 
 write.csv(df, file="prediction_tree.csv", row.names=FALSE)
 ```
-Decision Tree scored 0.77033, close to the RF model but not better.
+Decision Tree scored 0.78469, better than the RF model.Yay!
+But that's a little bit unexpected since the Rf model did better(not by much) 
+than the Decision Tree model.
 
 ```{r}
 # Naive Bayes
+set.seed(123)
+naiveB_Model <- NaiveBayes(Survived ~ ., data=train)
 pred_naiveB_test <- predict(naiveB_Model, newdata=test)
 
 # converting factor to numeric(Not_Survived=0, Survived=1)
@@ -346,7 +364,7 @@ df <- data.frame(PassengerId=test$PassengerId, Survived=final_pred)
 
 write.csv(df, file="prediction_naiveB.csv", row.names=FALSE)
 ```
-Naive Bayes scored 0.74163
+Naive Bayes scored 0.75120
 
 ```{r}
 # Ensemble
@@ -360,11 +378,13 @@ df <- data.frame(PassengerId=test$PassengerId, Survived=final_pred)
 
 write.csv(df, file="prediction_ensemble.csv", row.names=FALSE)
 ```
-Ensemble scored 0.78469, which is exactly the score Rf gave us, not surprising 
+Ensemble scored 0.77033, which is exactly the score Rf gave us, not surprising 
 since we used Rf as one of the models to create this ensemble one.
 
 ```{r}
 # Generalized Boosted Regression Models
+set.seed(123)
+boost_Model <- train(Survived ~., method="gbm", data=train)
 pred_Boost_test <- predict(boost_Model, newdata=test)
 
 # converting factor to numeric(Not_Survived=0, Survived=1)
@@ -375,7 +395,7 @@ write.csv(df, file="prediction_boost.csv", row.names=FALSE)
 ```
 Boost scored 0.76077
 
-We observe from the above values that our Random Forest model was the best model.
+We observe from the above values that our Decision Tree model was the best model.
 But I believe it can be made better.
 
 Next, we decide on ways to use the Name, Ticket and Cabin columns and see if we 
