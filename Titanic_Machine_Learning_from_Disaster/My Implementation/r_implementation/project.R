@@ -337,8 +337,41 @@ write.csv(df, file="naive_prediction_boost.csv", row.names=FALSE))
 #
 Boost scored 0.74641
 
-We observe from the above accuracy values that our Naive model wasn't that good.
-We also observe that the choice of model rarely made any big impact in the accuracy.
-One of the reason might be because we ignore the NA values of age and Embarked.
-We also have to decide which variables are necessary and whether we should 
-consider interaction between variables or not.If yes, then among which variables?
+#We observe from the above accuracy values that our Naive model wasn't that good.
+#We also observe that the choice of model rarely made any big impact in the accuracy.
+#One of the reason might be because we ignore the NA values of age and Embarked.
+#We also have to decide which variables are necessary and whether we should 
+#consider interaction between variables or not.If yes, then among which variables?
+
+
+family_name <- gsub("[, ]+[A-Za-z].*", "", train$Name)
+train$family <- family_name
+
+dd <- train
+sort_dd <- dd[with(dd, order(family, Pclass, Embarked, Ticket)),]
+
+test_dd <- sort_dd
+
+familyGroup <- numeric()
+familyGroup[1] <- 1
+familyCount <- 1
+for (i in 2:nrow(test_dd)){
+    #print(i)
+   # print(test_dd$family[i])
+    #print(test_dd$family[i-1])
+    if ((test_dd$family[i] == test_dd$family[i - 1]) & 
+            ((test_dd$Pclass[i] == test_dd$Pclass[i-1])) &
+            ((test_dd$Embarked[i] == test_dd$Embarked[i-1])) &
+            ((test_dd$SibSp[i] != 0) | (test_dd$Parch[i] !=0)) &
+            ((test_dd$SibSp[i-1] != 0) | (test_dd$Parch[i-1] !=0))){
+        familyGroup[i] <- familyCount
+    }
+    else{
+        familyCount = familyCount + 1
+        familyGroup[i] <- familyCount
+    }
+}
+
+View(cbind(sort_dd[,-c(10, 13)], familyGroup))
+
+test_dd[familyGroup %in% which(table(familyGroup) > 1),] # all family members

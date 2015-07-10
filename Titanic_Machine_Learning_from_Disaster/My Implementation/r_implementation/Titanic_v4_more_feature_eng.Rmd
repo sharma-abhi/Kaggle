@@ -1,7 +1,7 @@
 ---
 title: "Titanic: Machine Learning from Disaster"
 author: "Abhijeet Sharma"
-date: "Sunday, July 05, 2015"
+date: "Thursday, July 09, 2015"
 output: html_document
 ---
 ```
@@ -28,15 +28,21 @@ We observe that there are many fields we can convert to factors.
 # Step 2: Pre-processing.
 ## Step 2.1: Cleaning the training dataset.
 ```{r}
-# Passenger Id has no meaning for this analysis, so we remove it from the 
-# training dataset.
-train <-  subset(inp_train, select= -c(PassengerId))
+
 # There are some columns which are more meaningful if we convert them to factors.
-train$Survived <- factor(train$Survived, levels = c("0", "1"), 
-                         labels = c("Not_Survived", "Survived"))
-train$Pclass <- factor(train$Pclass)
-train$Sex <- factor(train$Sex)
-train$Embarked <- factor(train$Embarked)
+train <- inp_train
+test <- inp_test
+
+test$Survived <- as.integer(NA) # Dummy value
+test <- test[,names(train)]
+test$Fare[which(is.na(test$Fare))] <- 0
+
+merged_set <- rbind(train, test)
+
+merged_set$Pclass <- factor(merged_set$Pclass)
+merged_set$Sex <- factor(merged_set$Sex)
+merged_set$Embarked <- factor(merged_set$Embarked)
+
 ```
 Now that all the proper columns are converted to factors, we move on to handling
 the "NA" fields.
@@ -44,12 +50,10 @@ the "NA" fields.
 ```{r}
 # This time, instead of discarding name, we try to find some use of it.
 ## One way is to extract the Titles from the name and see if there is any link to
-# survivality (in the Titanic movie, priest(title Rev.) were more likely to stay in the 
-# sinking ship)
-## Another way is to use the family name
-first_name <- gsub("[A-Za-z '-]*, ", "", train$Name)
+# survivality (in the Titanic movie, priest(title Rev.) were more likely to stay
+# in the sinking ship)
+first_name <- gsub("[A-Za-z '-]*, ", "", merged_set$Name)
 Title <- gsub("[. *] .*","",first_name)
-# View(data.frame(train$Name, gsub("[A-Za-z '-]*, ", "", train$Name), gsub("[. *] .*","",gsub("[A-Za-z '-]*, ", "", train$Name))))
 
 Title[Title=="Col" | Title=="Capt" | Title=="Major"] <- "Army"
 Title[Title=="Sir"| Title=="Don" | Title=="Jonkheer" | Title=="Dona" | 
@@ -57,56 +61,131 @@ Title[Title=="Sir"| Title=="Don" | Title=="Jonkheer" | Title=="Dona" |
 Title[Title=="Miss" | Title=="Mlle" | Title=="Ms"] <- "Non-royal Unmarried Female"
 Title[Title=="Mrs" | Title=="Mme"] <- "Non-royal Married Female"
 
-train$Title <- as.factor(Title)
-prop.table(table(train$Title, train$Sex, train$Survived), 1)
-```
-## Step 2.3: Handling NA's
+merged_set$Title <- as.factor(Title)
 
+## Another way is to use the family name
+# We are doing something very ambitious.We will try to map the family tree of 
+# the passengers as best as we can.
+
+# We first extract the family names of each passenger 
+# (We'll ignore maiden names to establish the family connection)
+merged_set$family <- gsub("[, ]+[A-Za-z].*", "", merged_set$Name)
+sorted_merged_set <- merged_set[with(merged_set, order(family, Pclass, Embarked, SibSp, Parch, Ticket)),]
+# We now determine the family group of each passenger.
+# We do not classify family connections in lower level like mother,father,etc.
+# TODO: Examine family connections deeply.
+familyGroup <- numeric()
+familyGroup[1] <- 1
+familyCount <- 1
+for (i in 2:nrow(sorted_merged_set)){
+    if ((sorted_merged_set$family[i] == sorted_merged_set$family[i - 1]) & 
+            ((sorted_merged_set$Pclass[i] == sorted_merged_set$Pclass[i-1])) &
+            ((sorted_merged_set$Embarked[i] == sorted_merged_set$Embarked[i-1])) &
+            ((sorted_merged_set$SibSp[i] != 0) | (sorted_merged_set$Parch[i] !=0)) &
+            ((sorted_merged_set$SibSp[i-1] != 0) | (sorted_merged_set$Parch[i-1] !=0))){
+        familyGroup[i] <- familyGroup[i-1]
+    }
+    else{
+        familyCount = familyCount + 1
+        familyGroup[i] <- familyCount
+    }
+}
+#View(data.frame(sorted_merged_set[,c("Name", "Sex", "Age", "SibSp", "Parch", "Embarked", "Ticket", "family")],familyGroup))
+sorted_merged_set$familyGroup <- familyGroup
+#family_members <- familyGroup %in% which(table(familyGroup) > 1)
+#sorted_merged_set$familyGroup[!family_members] <- "No Family" 
+#sorted_merged_set$familyGroup[family_members] <- sorted_merged_set$family[family_members]
+#sorted_merged_set$familyGroup <- as.factor(sorted_merged_set$familyGroup)
+#sorted_merged_set$family <- as.factor(sorted_merged_set$family)
+#sorted_merged_set$familyGroup <- factor(paste(sorted_merged_set$family, sorted_merged_set$familyGroup))
+t <- table(sorted_merged_set$familyGroup)
+t[sorted_merged_set$familyGroup]
+sorted_merged_set$familySize <- t[sorted_merged_set$familyGroup]
+sorted_merged_set$familyGroupSize <- paste(sorted_merged_set$family, t[sorted_merged_set$familyGroup])
+sorted_merged_set$familyGroupSize[sorted_merged_set$familySize <= 2] <- "Small Family"
+sorted_merged_set$familyGroupSize <- factor(sorted_merged_set$familyGroupSize)
+#View(sorted_merged_set)
+```
+
+```{r}
+# Unmerge the train and test sets
+na_Survived <- is.na(sorted_merged_set$Survived)
+sorted_train <- sorted_merged_set[!na_Survived,]
+sorted_test <- sorted_merged_set[na_Survived,]
+
+train <- sorted_train[with(sorted_train, order(PassengerId)),]
+test <- sorted_test[with(sorted_test, order(PassengerId)),]
+#prop.table(table(train$Title, train$Sex, train$Survived), 1)
+#prop.table(table(test$Title, test$Sex), 1)
+
+# We do not need the "PassengerId", "Name", "Cabin", "Ticket" and "family" 
+# columns anymore.
+train <- subset(train, select= -c(PassengerId, Name, Ticket, Cabin, family, 
+                                  familyGroup, familySize))
+train$Survived <- factor(train$Survived, levels = c("0", "1"), 
+                         labels = c("Not_Survived", "Survived"))
+test <- subset(test, select= -c(Survived, Name, Ticket, Cabin, family, 
+                                familyGroup, familySize))
+```
+
+## Step 2.3: Handling NA's
 This time, we'll create a version of our train set which handles NAs in Age and 
 Embarked columns and observe the performance.
-```{r}
-# We ignore the "Name", "Cabin" and "Ticket" columns.
-# TODO: analyze any use of the "Cabin" and "Ticket" columns.
-train <- subset(train, select= -c(Cabin, Name, Ticket))
-summary(train)
-summary(inp_test)
-```
-In the Train set, We observe that both Age(177) and Embarked(2) columns have NAs.
+
+In the Train set, Age(177) and Embarked(2) columns have NAs.
 Also, the Fare column has 15 zero fares.
 
-In the Test set, we observe that Age(86) and Fare(1) columns have NAs.
+In the Test set, Age(86) and Fare(1) columns have NAs.
 Also, the Fare column has 2 zero fares.
 
 We'll use regression to predict the NAs in the Age column, 
-We'll not consider the 2 Embarked rows which have NAs now.
+We'll predict the 2 Embarked rows by observing plots.
 We'll ignore the zero fares for now.
-```{r message=FALSE}
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+library(rattle)
+library(caret)
+library(rpart)
 na_Embarked <- which(is.na(train$Embarked))
-train <- train[-na_Embarked,]
+train[na_Embarked,]
+# We assume there is no difference in fares dependending on Sex
+# We also assume that the Fare depends on Embarked and Age and Class.
+df <- train[train$Fare < 100 & train$Fare > 50 & train$Pclass == 1,]
+qplot(df$Age, df$Fare, color=df$Embarked)
+# We observe the two observations(in black) in the plot.
+# One of the observations(Age=38) lies near two blue ('S') points and hence we'll mark 
+# that as blue ('S') too.
+train[na_Embarked[1],c("Embarked")] <- 'S'
+# The other(Age=62) lies near a Red('C') point and we'll mark it as Red('C').
+train[na_Embarked[2],c("Embarked")] <- 'C'
+# If there had been more than 2 points, we might have used a classifier to 
+# predict this.
 
 na_Age <- which(is.na(train$Age))
 train.woNA <- train[-na_Age,]
 train.na <- train[na_Age,]
-
-library(caret)
+# we ignore family from Age prediction
 set.seed(123)
-fit1 <- lm(Age ~ Pclass + Sex + SibSp + Parch + Fare + Embarked + Title, 
-           data=train.woNA)
+fit1 <- lm(Age ~ Pclass + Sex + SibSp + Parch + Fare + Embarked + Title + 
+               familyGroupSize, data=train.woNA)
 predFit1 <- predict(fit1, train.woNA[,-c(1, 4)])
 
 set.seed(123)
-fit2 <- lm(Age ~ Pclass + Sex + SibSp + Fare + Embarked + Title, data=train.woNA)
-predFit2 <- predict(fit2, subset(train.woNA, select=c(Pclass, Sex, SibSp, Fare, 
-                                                      Embarked, Title)))
+fit2 <- lm(Age ~ Pclass + Sex + SibSp + Parch + Fare + Embarked + Title, 
+           data=train.woNA)
+predFit2 <- predict(fit2, subset(train.woNA, select=c(Pclass, Sex, SibSp, Parch, 
+                                                      Fare, Embarked, Title)))
 
 set.seed(123)
-fit3 <- lm(Age ~ Pclass + Sex + SibSp + Fare + Title, data=train.woNA)
-predFit3 <- predict(fit3, subset(train.woNA, select=c(Pclass, Sex, SibSp, Fare, 
-                                                      Title)))
+fit3 <- lm(Age ~ Pclass + Sex + SibSp + Parch + Fare + Title + familyGroupSize, 
+           data=train.woNA)
+predFit3 <- predict(fit3, subset(train.woNA, select=c(Pclass, Sex, SibSp, Parch, 
+                                                      Fare, Title, familyGroupSize)))
 
 set.seed(123)
-fit4 <- lm(Age ~ Pclass + Sex + SibSp + Title, data=train.woNA)
-predFit4 <- predict(fit4, subset(train.woNA, select=c(Pclass, Sex, SibSp, Title)))
+fit4 <- lm(Age ~ Pclass + Sex + SibSp + Parch + Fare + Title, data=train.woNA)
+predFit4 <- predict(fit4, subset(train.woNA, select=c(Pclass, Sex, SibSp, Parch,
+                                                      Fare, Title)))
 
 set.seed(123)
 # Using step function
@@ -114,39 +193,47 @@ step(fit1, ~.^2)
 set.seed(123)
 fit5 <- lm(formula = Age ~ Pclass + SibSp + Parch + Fare + Embarked + Title +
                Parch:Title + SibSp:Parch, data = train.woNA)
-predFit5 <- predict(fit5, train.woNA)
-anova(fit1, fit2, fit3, fit4, fit5)
+predFit5 <- predict(fit5, subset(train.woNA, select=c(Pclass, SibSp, Parch, 
+                                                      Fare, Embarked, Title)))
+#anova(fit1, fit2, fit3, fit4, fit5)
 
 par(mfrow=c(2,2))
 plot(fit5)
 par(mfrow=c(1,1))
 
 set.seed(123)
-fit6 <- train(Age ~., data=train.woNA[,-1], method="rf")
-predFit6 <- predict(fit6, train.woNA)
+fit6 <- train(Age ~., data=train.woNA[,-c(1, 10)], method="rf")
+predFit6 <- predict(fit6, subset(train.woNA, select=c(Pclass, Sex, SibSp, Parch, 
+                                                      Fare, Embarked, Title)))
 
 set.seed(123)
-fit7 <- rpart(Age ~ ., data=train.woNA)
-predFit7 <- predict(fit7, train.woNA)
+fit7 <- rpart(Age ~ ., data=train.woNA[, -1], method="anova")
+predFit7 <- predict(fit7, subset(train.woNA, select=c(Pclass, Sex, SibSp, Parch, 
+                                                      Fare, Embarked, Title,
+                                                      familyGroupSize)))
 fancyRpartPlot(fit7)
 
 df <- data.frame(predFit1, predFit2, predFit3, predFit4, predFit5, predFit6, 
                  predFit7, train.woNA$Age)
-# fit 5 and fit 6 look closest to the actual age, so lets create a ensemble 
+# View(df)
+# fit 5, fit 6 and fit7 look closest to the actual age, so lets create a ensemble 
 # model combining both.
 
-age_Ensemble_df <- data.frame(pStep=predFit5, pForest=predFit6, Age=train.woNA$Age)
+age_Ensemble_df <- data.frame(pStep=predFit5, pForest=predFit6, pTree=predFit7, 
+                              Age=train.woNA$Age)
 set.seed(123)
 fit8 <- train(Age ~., method="gbm", data=age_Ensemble_df)
-predFit8 <- predict(fit8, age_Ensemble_df[,-3])
+predFit8 <- predict(fit8, age_Ensemble_df[,-4])
 
-df <- data.frame(predFit5, predFit6, predFit8, train.woNA$Age)
-#View(df)
+df <- data.frame(predFit5, predFit6, predFit7, predFit8, train.woNA$Age)
+# View(df)
 
 # Selecting fit8 as our final model
-na_age_pred5 <- predict(fit5, train.na[,-4])
-na_age_pred6 <- predict(fit6, train.na[,-4])
-na_age_Ensemble_df <- data.frame(pStep=na_age_pred5, pForest=na_age_pred6)
+na_age_pred5 <- predict(fit5, train.na[,-c(4, 10)])
+na_age_pred6 <- predict(fit6, train.na[,-c(4, 10)])
+na_age_pred7 <- predict(fit7, train.na[,-4])
+na_age_Ensemble_df <- data.frame(pStep=na_age_pred5, pForest=na_age_pred6,
+                                 pTree=na_age_pred7)
 age_predictions <- predict(fit8, na_age_Ensemble_df)
 # sum(age_predictions < 0)
 train$Age[na_Age] <- age_predictions
@@ -155,7 +242,6 @@ train$Age[na_Age] <- age_predictions
 # Step 3: Analyze Plots
 ## Survivality
 ```{r echo = FALSE, message=FALSE}
-library(ggplot2)
 library(gridExtra)
 
 # histogram for Survived column.
@@ -229,7 +315,6 @@ ggplot(data=train, aes(AgeGroup, fill=Survived)) + geom_histogram(binwidth=1)
 We divide the training set into 3 parts, in a 60:20:20 manner.
 ```{r message=FALSE}
 # TODO: Use different splitting methods: k-fold, repeat k-fold, leave-one out.
-library(caret)
 train <- subset(train, select=-AgeGroup)
 set.seed(123) # setting seed for reproducibility
 # We first divide the training set into two parts in 60:40 ratio.
@@ -260,7 +345,6 @@ training.classifier_valid.
 ```{r message=FALSE,warning=FALSE}
 # TODO: Use interactions b/w variables
 library(klaR)
-par(mfrow=c(1,1))
 # Decision Trees
 set.seed(123)
 tree_Model <- train(Survived ~ ., data=training.train, method="rpart")
@@ -345,47 +429,61 @@ We observe that again **Random Forest** and **Ensemble** gives us the highest
 out-of-sample accuracy.
 We select the Rnadom Forest classifier for predicting the test set.
 # Step 6: Predict on Test set
-## Step 6.1: Clean Test set and syncc columns with training set
+## Step 6.1: Clean Test set and sync columns with training set
 ```{r}
-# Feature Engineering
-test <- inp_test
-first_name <- gsub("[A-Za-z '-]*, ", "", test$Name)
-Title <- gsub("[. *] .*","",first_name)
-# View(data.frame(test$Name, gsub("[A-Za-z '-]*, ", "", test$Name), gsub("[. *] .*","",gsub("[A-Za-z '-]*, ", "", test$Name))))
-
-Title[Title=="Col" | Title=="Capt" | Title=="Major"] <- "Army"
-Title[Title=="Sir"| Title=="Don" | Title=="Jonkheer" | Title=="Dona" | 
-          Title=="the Countess" | Title=="Lady"] <- "Royal"
-Title[Title=="Miss" | Title=="Mlle" | Title=="Ms"] <- "Non-royal Unmarried Female"
-Title[Title=="Mrs" | Title=="Mme"] <- "Non-royal Married Female"
-
-test$Title <- as.factor(Title)
-prop.table(table(test$Title, test$Sex), 1)
-
-# remove unnecesary columns
-test <- subset(test, select = -c(Name, Ticket, Cabin))
-test$Pclass <- factor(test$Pclass)
-test$Sex <- factor(test$Sex)
-test$Embarked <- factor(test$Embarked)
-test$Fare[which(is.na(test$Fare))] <- 0
+# Predict missing Ages in test data
 na_Age <- which(is.na(test$Age))
 test.na <- test[na_Age,]
+
 # Predicting the age in the test set using the fit8 model
-test_na_age_pred5 <- predict(fit5, test.na[,-c(1,4)])
-test_na_age_pred6 <- predict(fit6, test.na[,-c(1,4)])
+test_na_age_pred5 <- predict(fit5, test.na[,-c(1, 4, 10)])
+test_na_age_pred6 <- predict(fit6, test.na[,-c(1, 4, 10)])
+test_na_age_pred7 <- predict(fit7, test.na[,-c(1, 4)])
 test_na_age_Ensemble_df <- data.frame(pStep=test_na_age_pred5, 
-                                      pForest=test_na_age_pred6)
+                                      pForest=test_na_age_pred6,
+                                      pTree=test_na_age_pred7)
 test_age_predictions <- predict(fit8, test_na_age_Ensemble_df)
-# sum(test_age_predictions < 0) # only fit6 has sum = 0
+# sum(test_age_predictions < 0)
 test$Age[na_Age] <- test_age_predictions
 ```
 ## Step 6.2: predict on the classifier selected above
 ```{r}
 # we train the selected classifier using the full training set and predict on
 # the test set
+
+library(party)
+set.seed(415)
+fit <- cforest(Survived ~ ., data = train, controls=cforest_unbiased(ntree=2000, mtry=3))
+Prediction <- predict(fit, test, OOB=TRUE, type = "response")
+
+# converting factor to numeric(Not_Survived=0, Survived=1)
+final_pred <- as.numeric(Prediction=="Survived")
+df <- data.frame(PassengerId=test$PassengerId, Survived=final_pred)    
+
+write.csv(df, file="prediction_party_rf.csv", row.names=FALSE)
+```
+This scored 0.80861, yes! made it.Rank# 335
+
+```{r}
 set.seed(123)
 forest_Model <- train(Survived ~ ., data=train, method="rf")
 pred_Forest_test <- predict(forest_Model, newdata=test)
+
+plot(forest_Model)
+
+imp <- varImp(forest_Model)
+#varImpPlot(forest_Model)
+#featureImportance <- data.frame(Feature=row.names(imp), Importance=imp[1])
+
+## The below ggplot script, thanks to Ben Hamner
+#ggplot(featureImportance, aes(x=reorder(Feature, Importance), y=Importance)) +
+#     geom_bar(stat="identity", fill="#53cfff") +
+#     coord_flip() + 
+#     theme_light(base_size=20) +
+#     xlab("") +
+#     ylab("Importance") + 
+#     ggtitle("Random Forest Feature Importance\n") +
+#     theme(plot.title=element_text(size=5))
 
 # converting factor to numeric(Not_Survived=0, Survived=1)
 final_pred <- as.numeric(pred_Forest_test=="Survived")
@@ -395,12 +493,9 @@ df <- data.frame(PassengerId=test$PassengerId, Survived=final_pred)
 ```{r}
 write.csv(df, file="prediction_rf.csv", row.names=FALSE)
 ```
-Accuracy: 0.79904.
-Hurray!
-We find that the above model results in an accuracy of 0.79904 in Kaggle.
-That's Awesome! and far better than our earlier score of 0.78469.
-So, Using the Title as a feature paid off:)
-Again, just for fun, let's predict on the test set using some of the other 
+Accuracy: 0.77990
+
+Let's predict on the test set using some of the other 
 classfiers.
 ```{r}
 # Decision Tree
@@ -415,7 +510,7 @@ df <- data.frame(PassengerId=test$PassengerId, Survived=final_pred)
 
 write.csv(df, file="prediction_tree.csv", row.names=FALSE)
 ```
-Decision Tree scored 
+Decision Tree scored 0.78947
 
 ```{r}
 # Modified Decision Tree
@@ -470,12 +565,59 @@ df <- data.frame(PassengerId=test$PassengerId, Survived=final_pred)
 
 write.csv(df, file="prediction_boost.csv", row.names=FALSE)
 ```
-Boost scored
-
+Boost scored 
 ```
-We observe from the above values that our Random Forest model was the best model.
+None of the above classifiers bested the previous score.
+This might be because of overfitting.
 But I believe it can be made even better.
-
 ```
-Next, we decide on ways to use the Ticket and Cabin columns and see if we 
-can improve the score.
+Next, we try some things we haven't tried before.
+```{r}
+fit <- glm(Survived ~., data=train, family="binomial")
+step(fit, ~.^2)
+fit <- glm(formula = Survived ~ Pclass + Sex + Age + SibSp + Parch + 
+    Fare + Embarked + Title + Pclass:Sex + SibSp:Title + Age:Embarked + 
+    Parch:Embarked + Pclass:Fare + Age:Fare + Age:SibSp + Age:Parch, 
+    family = "binomial", data = train)
+
+pred_glm_test <- predict(fit, newdata=test, type="response")
+    
+df <- data.frame(PassengerId=test$PassengerId, Survived=pred_glm_test )
+
+write.csv(df, file="prediction_glm.csv", row.names=FALSE)
+pred_glm_train <- predict(fit, newdata=train, type="response")
+k <- numeric()
+for (i in seq(0.4, 0.6, 0.01)){
+a <- table(train[pred_glm_train > i,"Survived"])
+b <- table(train[pred_glm_train <= i,"Survived"])
+k <- c(k, (a[1]+b[2])/(a[2]+b[1]))
+}
+k[order(k)]
+```
+This gave 0.77512
+
+```{r}
+# Now, we try a voting boost model where all the previous models with high scores 
+# would be combined and vote upon the best results.
+# We prepare the file manually.It has 3 columns, one for the Gbm model aboove, 
+# one for yesterday's Random Forest model and another for yesterday's Tree model
+df <- read.csv("prediction_manual_boost_test_set.csv")
+#df$Rforest[df$Rforest==0] <- -1
+#df$voteRf[df$voteRf==0] <- -1
+#df$partyRf[df$partyRf==0] <- -1
+df$Survived[(df$Rforest * df$voteRf * df$partyRf) == 0] <- 0
+df$Survived[!((df$Rforest * df$voteRf * df$partyRf) == 0)] <- 1
+df <- df[,c("PassengerId", "Survived")]
+write.csv(df, file="prediction_boost_vote.csv", row.names=FALSE)
+```
+Accuracy: 0.80383
+Yes, finally, we are in the 80's league now.
+This increases our Rank to 790 out of 3147(as of July 9th, 2015 8:23PM EST).
+Interestingly, if we increase our accuracy by just 0.05, we will move up by 445 
+ranks to 335
+So, there's definitely scope for improvement.
+TODO: Find a use for the cabin.
+
+set.seed(123)
+boost_Model <- train(Survived ~., method="gbm", data=train)
+pred_Boost_test <- predict(boost_Model, newdata=test)
